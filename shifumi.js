@@ -1,3 +1,5 @@
+// DEFINITIONS
+
 var irc = require("irc");
 var util = require("util");
 
@@ -85,7 +87,7 @@ function createId()
     return text;
 }
 
-//---------
+//--- THIS IS SPARTA ---
 
 var botNetwork = [];
 spawnBots();
@@ -96,40 +98,3 @@ function spawnBots() {
 		botCount++;
 	}
 }
-
-
-
-/*
-var shifumi = new irc.Client( config.server, config.botName, {
-	channels: config.channels,
-	realName: "mcnami",
-	userName: "mcnami",
-    port: 6667,
-    debug: true,
-    showErrors: true,
-    autoRejoin: true,
-    autoConnect: true,
-    secure: false,
-    selfSigned: false,
-    certExpired: false,
-    floodProtection: false,
-    floodProtectionDelay: 1000,
-    sasl: false,
-    stripColors: false,
-    channelPrefixes: "&#",
-    messageSplit: 512
-
-});
-
-shifumi.addListener("notice", function(from, to, text, message) {
-	if( from == "NickServ" && message.args[1].indexOf("<password>") != -1 ) {
-		shifumi.say(from, "identify HellYeah");
-		shifumi.say(config.god2, "HI");
-	}
-});
-
-shifumi.addListener("message", function(from, to, text, message) {
-
-});
-
-*/
