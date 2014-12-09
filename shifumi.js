@@ -57,14 +57,6 @@ function Bot() {
 	        setTimeout( this.isThereAGodInThere, 5000, this);
         }
     });
-	
-	this.instance.addListener("whois", function(info){
-		if( Object.keys(info).length > 1 ) {
-			this.say(this.parent.config.god, "HI");
-		} else {
-			//setTimeout(isThereAGodInThere(), 5000);
-		}
-	});
 		
 	this.instance.addListener("registered", function(message) {
 		this.say(this.parent.config.god, "HI");
