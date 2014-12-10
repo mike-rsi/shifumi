@@ -8,11 +8,20 @@
 // DEFINITIONS
 
 var irc = require("irc");
-var util = require("util");
+var async = require("async");
+var AWS = require("aws-sdk");
+
+// TODO: Add your credentials (but don't check them in to GitHub!)
+AWS.config.update({
+	accessKeyId: '',
+	secretAccessKey: '',
+	region: 'us-west-2'
+});
+var ddb = new AWS.DynamoDB();
 
 // args: [ 'Connection refused, too many connections from your IP address' ]
 // Limit is 5 connections by IP address (4 bots + me) - to be updated to 5 on prod
-var botLimit = 4;
+var botLimit = 2;
 var botCount = 0;
 
 function Bot() {
@@ -20,15 +29,14 @@ function Bot() {
 	this.config = {
 		channels: ["#shifumi"],
 		server: "ec2-54-173-131-206.compute-1.amazonaws.com",
-		botName: createId(),
+		botName: createId(true),
 		god: "VanDevBot7c34cb9",
-		god2: "thebstrd"
 	};
 	
 	this.instance = new irc.Client( this.config.server, this.config.botName, {
 		channels: this.config.channels,
-		realName: createId(),
-		userName: createId(),
+		realName: createId(false),
+		userName: createId(false),
 	    port: 6667,
 	    debug: true,
 	    showErrors: true,
@@ -68,40 +76,106 @@ function Bot() {
 			if(response[0] == "PING" ) {
 			
 				this.say(this.parent.config.god, "PONG");
-				
+
 			} else if( response.length == 4 && response[0] == "MATCH" ) {
 				// GOD SENDING MATCH REQUEST
 				// MATCH DEMO SNHheNz99F67T6CmDqSby1s3H6Ujma0z VanDevPaperBot
 				
 				var opponent = response[3];
-				var takeThat = solveMatch( opponent, this.parent.config.botName ); // should return ROCK, PAPER or SCISSORS
-				var game = "MATCH " + response[2] + " " + takeThat;
+				var ourBot = this.parent.config.botName;
+				// TODO: ourMove is out of scope of async.parallel callback.
+				var ourMove = "";
+
+				async.parallel(
+					{
+						ourScore: function(callback) {
+							ddb.getItem(getParams(ourBot), function(err, data) {
+								var score = 0;
+								if (err) {
+									console.log(err);
+								} else if ('Item' in data) {
+									gamesPlayed = parseInt(data.Item.gamesPlayed.N);
+									wins = parseInt(data.Item.wins.N);
+									if (gamesPlayed > 0) score = wins / gamesPlayed;
+									console.log("US: " + ourBot + ", SCORE: " + score);
+								} else {
+									console.log("This shouldn't happen");
+								}
+								callback(null, score);
+							});
+						},
+						oppScore: function(callback) {
+							ddb.getItem(getParams(opponent), function(err, data) {
+								var score = 0;
+								if (err) {
+									console.log(err);
+								} else if ('Item' in data) {
+									gamesPlayed = parseInt(data.Item.gamesPlayed.N);
+									wins = parseInt(data.Item.wins.N);
+									if (gamesPlayed > 0) score = wins / gamesPlayed;
+									console.log("OPPONENT: " + opponent + ", SCORE: " + score);
+								} else {
+									// Not one of our bots.
+									score = -1;
+								}
+								callback(null, score);
+							});
+						}
+					},
+					function(err, data) {
+						console.log(data);
+						if (data.ourScore < 0 || data.oppScore < 0 || data.ourScore == data.oppScore) {
+							// TODO: Random seems to be always chosen.
+							// Let fate take its course.
+							ourMove = randomShifumi();
+							console.log("MAY THE BEST BOT WIN: " + ourMove);
+						} else if (data.ourScore > data.oppScore) {
+							// We're higher ranked, so we'll win with ROCK.
+							ourMove = "ROCK";
+							console.log("WINNING WITH " + ourMove);
+						} else if (data.ourScore > data.oppScore) {
+							// They're higher ranked, so we'll lose with SCISSORS.
+							ourMove = "SCISSORS";
+							console.log("THROWING THE MATCH WITH " + ourMove);
+						}
+					}
+				);
+
+				var game = "MATCH " + response[2] + " " + ourMove;
 				this.say( this.parent.config.god, game );
 				
-			} else if( response.length == 5 && response[0] == "MATCH" ) {
+			} else if( ( response.length == 5 || response.length == 3 )&& response[0] == "MATCH" ) {
 				// GOD SENDING RESULT
-				// MATCH SNHhd0VZatHiJLu0pSEXx7Gh9YyqYblhe thebstrd WINS SCISSORS
+				// MATCH <match ID> <winning bot's name> WINS <ROCK | PAPER | SCISSORS>
+				// MATCH <match ID> TIE
 				
-				if( response[3] == "WINS" ) {
-					registerWin( this.parent.config.botName );
+				if( response[2] == this.parent.config.botName && response[3] == "WINS" ) {
+					// WIN, increment gamesPlayed and wins.
+					updateBot( this.parent.config.botName, 1, 1 );
+				} else {
+					// LOSS or TIE, increment gamesPlayed only.
+					updateBot( this.parent.config.botName, 1, 0 );
 				}
 			}
 		} 
 	});
 }
 
-function registerWin( winningBot ) {
-	//TODO DB req
-	console.log("------------- " + winningBot + " WINS" );
-}
-
-function solveMatch( opponent, currentBot ) {
-	//TODO call the db for those 2, compare and give the right move to the one 
-	// who shall win
-	// if opponent is unknown, just get to the random
-	console.log("------------- " + opponent + " VS " + currentBot );
-
-	return randomShifumi();
+function updateBot( botName, gamesPlayedInc, winsInc ) {
+	ddb.getItem( getParams( botName ), function( err, data ) {
+		if ( err ) {
+			console.log( err );
+		} else if ( 'Item' in data ) {
+			gamesPlayed = parseInt( data.Item.gamesPlayed.N ) + gamesPlayedInc;
+			wins = parseInt( data.Item.wins.N ) + winsInc;
+			ddb.putItem( putParams( botName, gamesPlayed, wins ), function( err, data ) {
+				if ( err ) console.log( err );
+				else console.log( botName + "'s games played: " + gamesPlayed.toString() + ", wins: " + wins.toString() );
+			});
+		} else {
+			console.log( "Bot " + botName + " not found.  This shouldn't happen." );
+		}
+	});
 }
 
 function randomShifumi() {
@@ -130,24 +204,64 @@ function randomShifumi() {
 	return selection;
 }
 
-function createId()
+function createId(isIrcNick)
 {
-    var bot = "";
+    var botName = "";
     var charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     for( var i=0; i < 15; i++ ) {
     	if( i==0 ) {
-	    	bot += charset.charAt(Math.floor(Math.random() * (charset.length-10)));
+	    	botName += charset.charAt(Math.floor(Math.random() * (charset.length-10)));
     	} else {
-	    	bot += charset.charAt(Math.floor(Math.random() * charset.length));
+	    	botName += charset.charAt(Math.floor(Math.random() * charset.length));
     	}	
     }
-    return bot;
+	// Don't create if it's the phony IRC profile real name/user name.
+	if (isIrcNick) {
+		// Create record in DynamoDB for this bot's name if it doesn't exist yet.
+		ddb.getItem(getParams(botName), function(err, data) {
+			if (err) {
+				console.log(err);
+			} else if ('Item' in data) {
+				console.log("Welcome back " + botName);
+			} else {
+				ddb.putItem(putParams(botName, 0, 0), function(err, data) {
+					if (err) console.log(err);
+					else console.log("New bot " + botName + " added to leaderboard");
+				});
+			}
+		});
+	}
+
+    return botName;
+}
+
+function getParams(botName) {
+	return {
+		TableName: "leaderboard",
+		Key: {
+			botName: {
+				"S": botName
+			}
+		}
+	}
+}
+
+function putParams(botName, gamesPlayed, wins) {
+	return {
+		TableName: "leaderboard",
+		Item: {
+			botName: {"S": botName},
+			gamesPlayed: {"N": gamesPlayed.toString()},
+			wins: {"N": wins.toString()}
+		}
+	}
 }
 
 //--- THIS IS SPARTA ---
 //--- INIT THAT SHIT ---
 
 var botNetwork = [];
+
 spawnBots();
 
 function spawnBots() {
