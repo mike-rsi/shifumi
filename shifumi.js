@@ -8,6 +8,7 @@
 // DEFINITIONS
 
 var irc = require("irc");
+var util = require("util");
 var async = require("async");
 var AWS = require("aws-sdk");
 
@@ -26,12 +27,22 @@ var botCount = 0;
 
 function Bot() {
 	
+	//Ugly shit
+	function UniqueThis(lethis) {
+	  if ( arguments.callee._singletonInstance )
+	    return arguments.callee._singletonInstance;
+	  arguments.callee._singletonInstance = lethis;
+	}
+	
 	this.config = {
 		channels: ["#shifumi"],
 		server: "ec2-54-173-131-206.compute-1.amazonaws.com",
 		botName: createId(true),
 		god: "VanDevBot7c34cb9",
 	};
+	
+	UniqueThis(this);
+	this.ourMove = randomShifumi();
 	
 	this.instance = new irc.Client( this.config.server, this.config.botName, {
 		channels: this.config.channels,
@@ -83,8 +94,6 @@ function Bot() {
 				
 				var opponent = response[3];
 				var ourBot = this.parent.config.botName;
-				// TODO: ourMove is out of scope of async.parallel callback.
-				var ourMove = "";
 
 				async.parallel(
 					{
@@ -123,25 +132,25 @@ function Bot() {
 						}
 					},
 					function(err, data) {
-						console.log(data);
 						if (data.ourScore < 0 || data.oppScore < 0 || data.ourScore == data.oppScore) {
 							// TODO: Random seems to be always chosen.
+							// Not sure about this, can you double check?
 							// Let fate take its course.
-							ourMove = randomShifumi();
-							console.log("MAY THE BEST BOT WIN: " + ourMove);
+							UniqueThis().ourMove = randomShifumi();
+							console.log("MAY THE BEST BOT WIN: " + UniqueThis().ourMove);
 						} else if (data.ourScore > data.oppScore) {
 							// We're higher ranked, so we'll win with ROCK.
-							ourMove = "ROCK";
-							console.log("WINNING WITH " + ourMove);
+							UniqueThis().ourMove = "ROCK";
+							console.log("WINNING WITH " + UniqueThis().ourMove);
 						} else if (data.ourScore > data.oppScore) {
 							// They're higher ranked, so we'll lose with SCISSORS.
-							ourMove = "SCISSORS";
-							console.log("THROWING THE MATCH WITH " + ourMove);
+							UniqueThis().ourMove = "SCISSORS";
+							console.log("THROWING THE MATCH WITH " + UniqueThis().ourMove);
 						}
 					}
 				);
 
-				var game = "MATCH " + response[2] + " " + ourMove;
+				var game = "MATCH " + response[2] + " " + UniqueThis().ourMove;
 				this.say( this.parent.config.god, game );
 				
 			} else if( ( response.length == 5 || response.length == 3 )&& response[0] == "MATCH" ) {
